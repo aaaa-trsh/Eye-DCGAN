@@ -29,37 +29,49 @@ from IPython import display
 from PIL import Image, ImageOps
 import glob
 import numpy as np
+print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
 # SETTINGS
-batch_size = 128
-epochs = 15
 IMG_DIR = './data/eyes/'
 
-EPOCHS = 750
+EPOCHS = 10000
+GENERATE_RES = 3
 noise_dim = 100
-num_examples_to_generate = 4
+num_examples_to_generate = 16
+load_model = True
 
-image_gray_list = []
+image_list = []
 
-# Grab all of our images
-imcount = 0;
-for filename in glob.glob(IMG_DIR + "*.jpg"):
-  #if imcount == 5:
-  #  break
-  #imcount += 1
-  im=Image.open(filename)
-  print(f"Loading {filename}")
-  resize_image = im.resize((128, 128))
-  gray_image = resize_image.convert("RGB")
-  image_list.append(gray_image)
-  image_gray_list.append(np.array(gray_image))
+BUFFER_SIZE = 700
+BATCH_SIZE = 64
+dropout_prob = 0.5
 
-print("Loaded " + str(len(image_gray_list)) + " images")
-np_image_list = np.asarray(image_gray_list)
+try: 
+  # If already grabbed images, load it from the file
+  print(f"Loading all data from {IMG_DIR}_data_npy.npy")
+  image_list = np.load(IMG_DIR + "_data_npy.npy") 
+except:
+  # Grab all of our images
+  imcount = 0;
+  for filename in glob.glob(IMG_DIR + "*.jpg"):
+    if imcount == 100:
+      break
+    #imcount += 1
+    im=Image.open(filename)
+    print(f"Loading {filename}")
+    try:
+      resize_image = im.resize((128, 128))
+      gray_image = resize_image.convert("RGB")
+      #image_list.append(gray_image)
+      image_list.append(np.array(gray_image))
+    except:
+      print(f"Could not load {filename}")
 
-BUFFER_SIZE = 60000
-BATCH_SIZE = 256
-dropout_prob = 0.4
+  print("Loaded " + str(len(image_list)) + " images")
+  
+  np.save(IMG_DIR + "_data_npy.npy", np.asarray(image_list))
+
+np_image_list = np.asarray(image_list)
 
 train_images = np_image_list.reshape(np_image_list.shape[0], 128, 128, 3).astype('float32')
 train_images = (train_images - 127.5) / 127.5 # Normalize the images to [-1, 1]
@@ -92,7 +104,7 @@ def make_generator_model():
     #assert model.output_shape == (None, 16, 16, 256) # Note: None is the batch size
     print(model.output_shape)
 
-
+    
     model.add(layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False))
     #assert model.output_shape == (None, 16, 16, 128)
     print(model.output_shape)
@@ -118,6 +130,8 @@ def make_generator_model():
     if load_model:
       model.load_weights("C:/Users/kieth/source/repos/PyScraper/PyScraper/models/gen.h5")
 
+    print("GENERATOR SUMMARY")
+    model.summary()
     return model
 
 def generator_loss(fake_output):
@@ -131,17 +145,13 @@ def make_discriminator_model():
     model = tf.keras.Sequential()
     model.add(layers.Conv2D(128, 5, strides=2, padding='same', input_shape=[128, 128, 3]))
     model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(0.3))
+    model.add(layers.Dropout(0.5))
 
     model.add(layers.Conv2D(256, 5, strides=2, padding='same'))
     model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(0.3))
+    model.add(layers.Dropout(0.5))
 
     model.add(layers.Conv2D(512, 5, strides=2, padding='same'))
-    model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(dropout_prob))
-    
-    model.add(layers.Conv2D(1024, 5, strides=2, padding='same'))
     model.add(layers.LeakyReLU())
     model.add(layers.Dropout(dropout_prob))
 
@@ -150,6 +160,8 @@ def make_discriminator_model():
     model.add(layers.Activation('sigmoid'))
     if load_model:
       model.load_weights("C:/Users/kieth/source/repos/PyScraper/PyScraper/models/disc.h5")
+    print("DISCRIMINATOR SUMMARY")
+    model.summary()
     return model
 
 def discriminator_loss(real_output, fake_output):
@@ -204,12 +216,12 @@ def generate_and_save_images(model, epoch, test_input):
   # Notice `training` is set to False.
   # This is so all layers run in inference mode (batchnorm).
   predictions = model(test_input, training=False)
-  result = Image.new("RGB", (256, 256))
+  result = Image.new("RGB", (512, 512))
   #print(predictions[0].numpy()[0][0])
 
   i = 0
-  for y in range(0, 2):
-    for x in range(0, 2):
+  for y in range(0, 4):
+    for x in range(0, 4):
       img_np = (predictions[i].numpy());
       img = Image.fromarray((((img_np + 1) / 2) * 255).astype(np.uint8))
       result.paste(img, (y * 128, x * 128))
